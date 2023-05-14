@@ -1,4 +1,5 @@
 const express = require('express')
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const app = express()
@@ -9,6 +10,7 @@ const port = process.env.PORT || 5000
 app.use(cors())
 app.use(express.json());
 
+//require('crypto').randomBytes(64).toString('hex')
 
 console.log(process.env.DB_USER)
 
@@ -24,6 +26,24 @@ const client = new MongoClient(uri, {
   }
 });
 
+const verifyJwt = (req,res,next)=>{
+  console.log("hitting jwt");
+  console.log(req.headers.authorization);
+  const authorization = req.headers.authorization;
+  if(!authorization){
+   res.status(401).send({error:true,message:'unauthorized access'});
+  }
+  const token = authorization.split(' ')[1]
+  console.log("token inside verify jwt",token);
+  jwt.verify(token,process.env.ACCESS_TOKEN_SECRET,(error,decoded)=>{
+    if(error){
+      return res.status(103).send({error:true,message:'unauthorized access'})
+    }
+    req.decoded = decoded;
+    next();
+  })
+}
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -34,6 +54,18 @@ async function run() {
     const servicesCollection = client.db("carDoctor").collection('services');
     const bookingCollection = client.db("carDoctor").collection('bookings');
     
+    //jwt routes
+    app.post('/jwt',(req,res)=>{
+      const user = req.body;
+      console.log(user);
+                          // payload,secret key
+      const token = jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{expiresIn: '1h'});
+      console.log(token);
+      res.send({token});
+    })
+
+
+    //services route
     app.get('/services',async(req,res)=>{
       const cursor = servicesCollection.find();
       const result = await cursor.toArray();
@@ -51,9 +83,11 @@ async function run() {
       res.send(result)
     })
 
-    //booking 
-    app.get('/bookings',async(req,res)=>{
-      console.log(req.query.email);
+    //bookings routes
+    app.get('/bookings',verifyJwt, async(req,res)=>{
+      console.log("came back after verified");
+      console.log(req.headers.authorization);
+      //console.log(req.query.email);
       let query = {};
       if(req.query?.email){
         query = {email: req.query.email}
@@ -70,7 +104,7 @@ async function run() {
     })
     
     //update
-    app.patch('bookings/:id',async(req,res)=>{
+    app.patch('/bookings/:id',async(req,res)=>{
           const id = req.params.id;
           const filter = {_id: new ObjectId(id)};
           const updateBooking = req.body;
